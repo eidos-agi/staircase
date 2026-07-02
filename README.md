@@ -150,6 +150,28 @@ block ships in `agent-brief --json` and the manager-check packet under
 `time`; config keys are `operator_tz`, `stakeholder_tz`, `deadline_local`,
 `morning_local`. Timezones use stdlib `zoneinfo` — still zero-dependency.
 
+## Under pressure, bisect — half-done visibility
+
+The same instinct that made SEALs count breaths and made elephant carpaccio
+slice the impossible thin applies hardest at the deadline. When a promise
+won't fit the clock, the move is **not** to push harder on the whole — it is
+to **bisect it** so a smaller piece can *land and be shown* now:
+
+```
+staircase split row-46 --into row-46-tied-in-gold row-46-rendered-live
+```
+
+The parent is superseded (neither kept nor slipped — decomposed); the halves
+become the scope and inherit the parent's acceptance criteria. Ship the first
+half, show it, then carry or split the rest. **If a half still won't fit the
+clock, split it again** — recurse until a piece fits. Visible partial progress
+beats an all-or-nothing miss, and it keeps the stakeholder seeing motion.
+
+Staircase pushes this for you: when the clock is `TIGHT`/`CRITICAL` with
+unbuilt promises, the deadline alarm in `status`, the brief, and the Manager's
+TIME domain all carry the SPLIT directive with the exact command. Pressure is
+the signal to make the work smaller, not to hide the risk.
+
 ## Agents work under the same contract
 
 A repo with `.staircase/` keeps agents accountable too. The plugin ships a

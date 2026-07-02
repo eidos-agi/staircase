@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-07-02
+
+Under pressure, bisect. When a deadline is at risk the plugin pushes
+splitting an at-risk promise into landable halves — half-done visibility —
+and halving again if a half still won't fit.
+
+- **`staircase split <id> --into <a> <b> …`** supersedes the parent (neither
+  kept nor slipped — decomposed) and plans the halves for today, inheriting
+  the parent's acceptance criteria. Requires ≥2 halves.
+- When pace is `TIGHT` / `CRITICAL` / `PAST_DEADLINE` with unbuilt promises,
+  the deadline alarm in `status`, the agent brief, and the Manager's TIME
+  domain all carry the SPLIT directive with the exact command and the
+  recurse-if-needed instruction.
+
 ## 0.7.0 — 2026-07-02
 
 "Kept" now means audit-honored everywhere — the tool no longer contradicts

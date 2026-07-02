@@ -231,6 +231,22 @@ def time_facts(p: "Project", now: dt.datetime,
     }
 
 
+def _pressure_directive(tf: dict) -> str | None:
+    """Under deadline pressure with unbuilt promises, the move is not to push
+    harder on the whole — it is to BISECT for half-done visibility. Returned
+    as a directive to append to the deadline alarm; None when not under
+    pressure or nothing is unbuilt."""
+    if tf["pace_verdict"] not in ("TIGHT", "CRITICAL", "PAST_DEADLINE"):
+        return None
+    if tf["open_unbanked_need_production"] <= 0:
+        return None
+    return ("SPLIT for half-done visibility — bisect each at-risk promise "
+            "(`staircase split <id> --into <a> <b>`) so a smaller piece can "
+            "LAND and be shown before the deadline. If a half still won't fit "
+            "the clock, halve it again. Visible partial progress beats an "
+            "all-or-nothing miss.")
+
+
 def _clock_line(tf: dict) -> str:
     """The one-line CLOCK banner shared by agent-brief and status."""
     same = tf["operator_tz"] == tf["stakeholder_tz"]
@@ -383,6 +399,8 @@ class Project:
                       if e.get("type") == "plan"]
         self.misses = [e for e in self._plan_events
                        if e.get("type") == "miss"]
+        self.splits = [e for e in self._plan_events
+                       if e.get("type") == "split"]
         self.expectations = (sc / "expectations.md").read_text() \
             if (sc / "expectations.md").is_file() else ""
 
@@ -469,8 +487,16 @@ class Project:
                 kept += sum(1 for i in p["ids"] if i in released)
         return kept, named
 
+    def superseded_ids(self) -> set[str]:
+        """Promises replaced by a `staircase split` — no longer owed as a
+        whole because their halves (which ARE now owed) carry the work.
+        Neither kept nor slipped: decomposed for half-done visibility."""
+        return {e["parent"] for e in self.splits}
+
     def plan_for(self, date: str) -> list[str]:
-        return [i for p in self.plans if p["date"] == date for i in p["ids"]]
+        sup = self.superseded_ids()
+        return [i for p in self.plans if p["date"] == date
+                for i in p["ids"] if i not in sup]
 
     def promise_criteria(self) -> dict[str, dict]:
         """Latest {means, accept} per promise id — the definition of what each
@@ -501,8 +527,10 @@ class Project:
         For a promise-using project, 'kept' == honored; else kept == released."""
         released = self.released_ids()
         verdicts = self.audit_verdicts()
+        sup = self.superseded_ids()
         named = list(dict.fromkeys(
-            i for p in self.plans if p["date"] <= as_of for i in p["ids"]))
+            i for p in self.plans if p["date"] <= as_of
+            for i in p["ids"] if i not in sup))
         rel = [i for i in named if i in released]
         honored = [i for i in rel if verdicts.get(i) == "HONORED"]
         up = self.uses_promises()
@@ -735,6 +763,44 @@ def cmd_plan(a) -> int:
     return 0
 
 
+# ------------------------------------------------------------------- split
+def cmd_split(a) -> int:
+    """Bisect an at-risk promise into smaller halves that each deliver
+    HALF-DONE VISIBILITY. Under deadline pressure a whole that won't fit the
+    clock becomes two pieces, the first of which can land and be shown now.
+    The parent is superseded (neither kept nor slipped — decomposed); the
+    halves are planned for today and inherit the parent's acceptance criteria
+    as a starting template. If a half still won't fit, split it again."""
+    p = load_project(a.dir)
+    tiso = _now().date().isoformat()
+    named = {i for pl in p.plans if pl["date"] <= tiso for i in pl["ids"]}
+    if a.parent not in named:
+        raise _fail(f"{a.parent!r} is not a named promise — only a named "
+                    "promise can be split")
+    if a.parent in p.released_ids():
+        raise _fail(f"{a.parent!r} is already released — nothing to split")
+    if len(a.into) < 2:
+        raise _fail("--into needs at least TWO halves (the point is to "
+                    "bisect; one child is just a rename)")
+    if a.parent in p.superseded_ids():
+        raise _fail(f"{a.parent!r} was already split")
+    inherited = p.promise_criteria().get(a.parent, {})
+    p.append("plans.jsonl", {"type": "split", "parent": a.parent,
+                             "children": list(a.into)})
+    ev = {"type": "plan", "date": tiso, "ids": list(a.into), "via": "split"}
+    if inherited:
+        ev["criteria"] = {c: dict(inherited) for c in a.into}
+    p.append("plans.jsonl", ev)
+    print(f"staircase: {a.parent} SPLIT into {len(a.into)} halves for "
+          f"half-done visibility: " + ", ".join(a.into))
+    print("  Ship the first half NOW so progress is visible; carry or split "
+          "the rest. If a half still won't fit the clock, split it again.")
+    if inherited:
+        print("  (each half inherited the parent's acceptance criteria — "
+              "tighten with `staircase promise <half> --means/--accept`)")
+    return 0
+
+
 # ----------------------------------------------------------------- promise
 def cmd_promise(a) -> int:
     """Attach or amend a promise's acceptance criteria AFTER it was named —
@@ -815,11 +881,12 @@ def cmd_status(a) -> int:
             "SLA — production must outpace release or the cadence "
             "conversation happens in expectations.md, not silently")
     if tf["pace_verdict"] in ("CRITICAL", "PAST_DEADLINE"):
+        directive = _pressure_directive(tf)
         alarms.append(
             f"DEADLINE {tf['pace_verdict']}: {tf['remaining_human']} · "
             f"{tf['open_unbanked_need_production']} promise(s) still need "
             f"production, {tf['open_banked_release_only']} banked need only a "
-            "release")
+            "release" + (f" → {directive}" if directive else ""))
     elif tf["pace_verdict"] == "RELEASE_NOW":
         alarms.append(
             f"RELEASE WINDOW CLOSING: {tf['remaining_human']} · "
@@ -1173,11 +1240,12 @@ def brief_payload(p: Project, today: dt.date) -> dict:
                       f"{p.cadence}/day) — production outranks polish today")
     tf = time_facts(p, _now(), len(open_plan), len(open_banked))
     if tf["pace_verdict"] in ("CRITICAL", "PAST_DEADLINE"):
+        directive = _pressure_directive(tf)
         alarms.append(
             f"DEADLINE {tf['pace_verdict']}: {tf['remaining_human']} · "
             f"{tf['open_unbanked_need_production']} promise(s) still need "
             f"production, {tf['open_banked_release_only']} banked need only "
-            "a release")
+            "a release" + (f" → {directive}" if directive else ""))
     hist = p.cadence_history()
     return {
         "date": tiso, "mission": p.mission, "cadence": p.cadence,
@@ -1687,6 +1755,15 @@ def main(argv=None) -> int:
                                     "auditor runs it; without one the promise "
                                     "is flagged ill-formed")
     s.set_defaults(fn=cmd_plan)
+
+    s = sub.add_parser("split",
+                       help="bisect an at-risk promise into halves for "
+                            "half-done visibility under deadline pressure")
+    s.add_argument("parent", help="the named promise to bisect")
+    s.add_argument("--into", nargs="+", required=True,
+                   help="the half-promise ids (>=2); the first should be "
+                        "landable NOW")
+    s.set_defaults(fn=cmd_split)
 
     s = sub.add_parser("promise",
                        help="attach/amend a named promise's acceptance "

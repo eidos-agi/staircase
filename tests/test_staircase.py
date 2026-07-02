@@ -621,6 +621,56 @@ class TestPromiseAuditor(unittest.TestCase):
         self.assertIn("RELEASED ≠ KEPT", out)
 
 
+class TestSplitUnderPressure(unittest.TestCase):
+    """Under deadline pressure the plugin pushes bisection for half-done
+    visibility: split an at-risk promise into landable halves, and if a half
+    still won't fit, halve again."""
+
+    def _proj(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(
+            root, ignore_errors=True))
+        run("--dir", str(root), "init", "--cadence", "5", "--by", "sam",
+            "--stakeholder-tz", "America/Chicago", "--deadline", "18:00",
+            now="2026-07-02T08:00:00Z")
+        return str(root)
+
+    def test_split_supersedes_parent_and_plans_halves(self):
+        root = self._proj()
+        run("--dir", root, "plan", "big", "--means", "the whole thing",
+            "--date", "2026-07-02", now="2026-07-02T08:30:00Z")
+        code, out = run("--dir", root, "split", "big",
+                        "--into", "big-a", "big-b",
+                        now="2026-07-02T09:00:00Z")
+        self.assertEqual(code, 0, out)
+        pr = staircase.Project(Path(root) / ".staircase")
+        self.assertEqual(pr.superseded_ids(), {"big"})
+        # parent no longer owed; halves are now the scope, and inherited means
+        self.assertNotIn("big", pr.plan_for("2026-07-02"))
+        self.assertIn("big-a", pr.plan_for("2026-07-02"))
+        self.assertEqual(pr.promise_criteria()["big-a"]["means"],
+                         "the whole thing")
+
+    def test_split_requires_two_halves(self):
+        root = self._proj()
+        run("--dir", root, "plan", "big", "--date", "2026-07-02",
+            now="2026-07-02T08:30:00Z")
+        code, out = run("--dir", root, "split", "big", "--into", "only-one",
+                        now="2026-07-02T09:00:00Z")
+        self.assertEqual(code, 2)
+        self.assertIn("TWO", out)
+
+    def test_pressure_alarm_recommends_split(self):
+        root = self._proj()
+        # unbuilt promise, 30 min before deadline -> CRITICAL -> split advice
+        run("--dir", root, "plan", "big", "--means", "x", "--accept", "false",
+            "--date", "2026-07-02", now="2026-07-02T18:00:00Z")
+        code, out = run("--dir", root, "status",
+                        now="2026-07-02T22:30:00Z")  # 17:30 CDT, 30m left
+        self.assertIn("DEADLINE CRITICAL", out)
+        self.assertIn("SPLIT for half-done visibility", out)
+
+
 if __name__ == "__main__":
     unittest.main()
 

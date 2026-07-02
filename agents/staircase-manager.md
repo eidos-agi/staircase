@@ -80,9 +80,14 @@ Evaluate all five on every pass. Any red → steer. All green → silent.
      if any promise is banked-but-unreleased, flag that the report will
      read unkept until the owner releases.
    - `CRITICAL` / `TIGHT` — unbuilt promises with under 1h / 2h left.
-     Name the specific at-risk items (cross `plan_ages` open items with
-     the remaining time) and steer: cut scope, split, or MISS the ones
-     that cannot land — do it now, not at day's end.
+     **The move under pressure is to BISECT, not to push harder on the
+     whole.** Steer the parent to `staircase split <id> --into <a> <b>`:
+     break each at-risk promise into halves so a smaller piece can LAND and
+     be shown before the deadline (half-done visibility beats an
+     all-or-nothing miss). If a half still won't fit the clock, halve it
+     again — recurse until a piece fits. Name the specific at-risk items
+     (cross `plan_ages` with the remaining time), and only MISS what cannot
+     be split into anything landable.
    - `RELEASE_NOW` — the only open promises are already banked and the slot
      is closing; a release is seconds. Steer the owner to release before
      the report renders (releasing is the owner's call — you flag, never
