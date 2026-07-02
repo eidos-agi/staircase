@@ -1300,9 +1300,21 @@ def cmd_agent_brief(a) -> int:
     L.append(">>> PROMISES ARE THE MOST IMPORTANT THING. Everything else "
              "(cadence, buffer, streak) exists to serve them and NEVER "
              "outranks them. <<<")
+    # "kept" means audit-HONORED once the project uses verifiable promises —
+    # the same truth status and audit report, never a released-but-unconfirmed
+    # count
+    pv = p.promise_view(tiso)
+    kept_word = "HONORED" if pv["uses_promises"] else "kept"
+    kept, named = pv["kept"], pv["named"]
+    if pv["released_not_honored"]:
+        L.append(f"Promises: {kept} of {named} {kept_word} (independent "
+                 f"audit) — but {len(pv['released_not_honored'])} RELEASED ≠ "
+                 "KEPT (released, not yet honored): "
+                 + ", ".join(pv["released_not_honored"])
+                 + ". Released is not kept until a screenshot proves it live.")
     if open_plan:
         rem = tf["remaining_human"]
-        L.append(f"Promises: kept {kept} of {named} named today · "
+        L.append(f"Promises: {kept} of {named} {kept_word} today · "
                  f"{len(open_plan)} STILL OPEN ({rem}): "
                  + ", ".join(open_plan) + ". Work BACKWARDS from each open "
                  "promise — name what must be true for it to land, then do "
