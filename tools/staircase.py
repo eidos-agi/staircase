@@ -473,14 +473,45 @@ class Project:
         return [i for p in self.plans if p["date"] == date for i in p["ids"]]
 
     def promise_criteria(self) -> dict[str, dict]:
-        """Latest {means, accept} per promise id across all plan events —
-        the definition of what each promise MEANS and how honoring it is
-        checked. Absent → the promise is ill-formed (unverifiable)."""
+        """Latest {means, accept} per promise id — the definition of what each
+        promise MEANS and how honoring it is checked. Read from ANY plan-ledger
+        event carrying `criteria` (a `plan` at naming time OR a later `criteria`
+        amendment via `staircase promise`). Absent → the promise is ill-formed."""
         out: dict[str, dict] = {}
-        for pl in self.plans:                     # file order == ts order
+        for pl in self._plan_events:              # file order == ts order
             for i, c in (pl.get("criteria") or {}).items():
                 out[i] = c
         return out
+
+    def audit_verdicts(self) -> dict[str, str]:
+        """The most recent independent-audit verdict per promise id (from the
+        last `staircase audit` run). Empty if never audited."""
+        return dict(self.audits[-1]["verdicts"]) if self.audits else {}
+
+    def uses_promises(self) -> bool:
+        """True once a project adopts verifiable promises — any acceptance
+        criteria set, or a screenshot burden of proof. Such a project's
+        'kept' means audit-HONORED, not merely released."""
+        return (bool(self.promise_criteria())
+                or str(self.config.get("burden_of_proof")) == "screenshot")
+
+    def promise_view(self, as_of: str) -> dict:
+        """The honest promise scoreboard on UNIQUE ids up to as_of:
+        named / released / honored (released AND last audit verdict HONORED).
+        For a promise-using project, 'kept' == honored; else kept == released."""
+        released = self.released_ids()
+        verdicts = self.audit_verdicts()
+        named = list(dict.fromkeys(
+            i for p in self.plans if p["date"] <= as_of for i in p["ids"]))
+        rel = [i for i in named if i in released]
+        honored = [i for i in rel if verdicts.get(i) == "HONORED"]
+        up = self.uses_promises()
+        return {"named": len(named), "released": len(rel),
+                "honored": len(honored), "uses_promises": up,
+                "kept": len(honored) if up else len(rel),
+                "released_not_honored": [i for i in rel
+                                         if verdicts.get(i) != "HONORED"]
+                if up else []}
 
     def win_for(self, wid: str) -> dict | None:
         for w in self.wins:
@@ -704,6 +735,65 @@ def cmd_plan(a) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- promise
+def cmd_promise(a) -> int:
+    """Attach or amend a promise's acceptance criteria AFTER it was named —
+    the fix for a promise planned without a --means/--accept (which the
+    auditor flags ill-formed). Appends a criteria event; never inflates the
+    named count, never backdates."""
+    p = load_project(a.dir)
+    tiso = _now().date().isoformat()
+    named = {i for pl in p.plans if pl["date"] <= tiso for i in pl["ids"]}
+    if a.id not in named:
+        raise _fail(f"{a.id!r} is not a named promise (plans.jsonl) — name it "
+                    "with `staircase plan` first, then attach criteria")
+    if not (a.means or a.accept):
+        raise _fail("give at least one of --means / --accept — a promise "
+                    "needs a definition of done and/or an acceptance check")
+    p.append("plans.jsonl", {
+        "type": "criteria", "ids": [a.id],
+        "criteria": {a.id: {**({"means": a.means} if a.means else {}),
+                            **({"accept": a.accept} if a.accept else {})}}})
+    print(f"staircase: criteria attached to {a.id}"
+          + (f" — means: {a.means!r}" if a.means else "")
+          + (f" · accept: {a.accept!r}" if a.accept else "")
+          + ". Run `staircase audit --run` to re-verify.")
+    return 0
+
+
+# ------------------------------------------------------------- self-update
+def cmd_self_update(a) -> int:
+    """Self-update: pull the latest plugin from its source repo into the
+    installed location (the directory this file lives in). Fast-forward only;
+    prints the version before/after. For a marketplace install, prefer Claude
+    Code's `/plugin update staircase` — this is the CLI path for a git checkout."""
+    here = Path(__file__).resolve().parent.parent      # plugin root
+    def ver():
+        pj = here / ".claude-plugin" / "plugin.json"
+        try:
+            return json.loads(pj.read_text()).get("version", "?")
+        except OSError:
+            return "?"
+    before = ver()
+    rc, _ = 1, ""
+    try:
+        pr = subprocess.run(["git", "-C", str(here), "pull", "--ff-only"],
+                            capture_output=True, text=True, timeout=60)
+        rc, out = pr.returncode, pr.stdout + pr.stderr
+    except OSError as e:
+        raise _fail(f"self-update needs git in a checkout of the plugin repo: {e}")
+    after = ver()
+    if rc != 0:
+        raise _fail(f"self-update failed (git pull --ff-only): {out.strip()}. "
+                    "For a marketplace install use `/plugin update staircase`.")
+    if before == after:
+        print(f"staircase: already up to date (v{after})")
+    else:
+        print(f"staircase: updated v{before} → v{after}. Restart the session "
+              "so the MCP server reloads.")
+    return 0
+
+
 # ------------------------------------------------------------------ status
 def cmd_status(a) -> int:
     p = load_project(a.dir)
@@ -750,11 +840,23 @@ def cmd_status(a) -> int:
         return 4 if (alarms and a.check) else 0
     print(f"Staircase status — {today.isoformat()} (operator dashboard: "
           "this is the internal truth)")
-    # promises first and loudest — the one number that matters most
+    # promises first and loudest — the one number that matters most, and it
+    # means AUDIT-HONORED (not merely released) once the project uses promises
+    pv = p.promise_view(tiso)
     open_note = (f" · {len(open_plan)} OPEN: {', '.join(open_plan)}"
                  if open_plan else "")
-    print(f"  PROMISES: {kept} of {named} named-in-advance kept  "
-          f"← the one that matters most{open_note}")
+    if pv["uses_promises"]:
+        print(f"  PROMISES: {pv['honored']} of {pv['named']} HONORED "
+              f"(independent audit)  ← the one that matters most{open_note}")
+        if pv["released_not_honored"]:
+            print(f"  ⚠  RELEASED ≠ KEPT: {len(pv['released_not_honored'])} "
+                  "released but NOT audit-honored — "
+                  + ", ".join(pv["released_not_honored"])
+                  + ". Ship the real thing (with a screenshot) or MISS-log; "
+                  "run `staircase audit`.")
+    else:
+        print(f"  PROMISES: {kept} of {named} named-in-advance kept  "
+              f"← the one that matters most{open_note}")
     print(f"  {_clock_line(tf)}")
     print(f"  SLA:      {p.cadence} verified wins released per day "
           f"(expectations.md, {n_hist} cadence "
@@ -1585,6 +1687,20 @@ def main(argv=None) -> int:
                                     "auditor runs it; without one the promise "
                                     "is flagged ill-formed")
     s.set_defaults(fn=cmd_plan)
+
+    s = sub.add_parser("promise",
+                       help="attach/amend a named promise's acceptance "
+                            "criteria (--means/--accept) after planning")
+    s.add_argument("id", help="the named promise to give criteria")
+    s.add_argument("--means", help="what the promise means (definition of done)")
+    s.add_argument("--accept", help="acceptance check: shell cmd, exit 0 iff "
+                                    "honored")
+    s.set_defaults(fn=cmd_promise)
+
+    s = sub.add_parser("self-update",
+                       help="update the installed plugin from its source repo "
+                            "(git ff-only); or use `/plugin update staircase`")
+    s.set_defaults(fn=cmd_self_update)
 
     s = sub.add_parser("audit",
                        help="INDEPENDENT promise auditor: verify each promise "

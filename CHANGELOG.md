@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0 — 2026-07-02
+
+"Kept" now means audit-honored everywhere — the tool no longer contradicts
+itself — plus promise amendment and self-update.
+
+- **`status` (and the promise view) count HONORED, not released**, once a
+  project uses verifiable promises. A released-but-unhonored promise shows a
+  loud `RELEASED ≠ KEPT` line instead of being counted kept. This closes the
+  contradiction where `status` said "9 kept" while `audit` said "0 honored."
+- **`staircase promise <id> --means … --accept …`** attaches or amends a
+  promise's acceptance criteria after it was named — the fix for a promise
+  planned without criteria (which the auditor flags ill-formed). It never
+  inflates the named count and never backdates.
+- **`staircase self-update`** fast-forwards the installed plugin from its
+  source repo; for a marketplace install, `/plugin update staircase`. A
+  version pointer + the update path are documented so improvements propagate
+  instead of drifting.
+
 ## 0.6.0 — 2026-07-02
 
 Promises get a definition and an independent auditor. "Released" no longer

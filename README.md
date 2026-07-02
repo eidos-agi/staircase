@@ -263,12 +263,17 @@ Work without Promise is noise. Promise without Production is invisible.
 Production without Mission is busywork. Staircase keeps all four in one
 ledger.
 
-## Install
+## Install & keep current
 
 ```
 /plugin marketplace add eidos-agi/staircase
 /plugin install staircase@staircase
 ```
+
+**Self-update:** `/plugin update staircase` (marketplace install), or
+`staircase self-update` from a git checkout — a fast-forward pull of the
+latest plugin into the installed location, with a version before/after.
+Restart the session afterward so the bundled MCP server reloads.
 
 Then in any project:
 

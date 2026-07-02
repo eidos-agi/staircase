@@ -588,6 +588,39 @@ class TestPromiseAuditor(unittest.TestCase):
         self.assertIn("row-42", d["failures"])
 
 
+    def test_promise_amend_makes_ill_formed_wellformed(self):
+        root = self._proj("screenshot")
+        run("--dir", root, "plan", "row-42", "--date", "2026-07-01",
+            now="2026-07-01T08:30:00Z")               # no criteria -> ill-formed
+        run("--dir", root, "log-win", "row-42", "--proof", self._shot(root),
+            now="2026-07-01T09:00:00Z")
+        run("--dir", root, "release", "--n", "1", now="2026-07-01T09:30:00Z")
+        code, out = run("--dir", root, "audit", "--json",
+                        now="2026-07-01T10:00:00Z")
+        self.assertEqual(json.loads(out)["results"][0]["verdict"], "ILL_FORMED")
+        # attach criteria after the fact
+        run("--dir", root, "promise", "row-42", "--means", "live",
+            "--accept", "true", now="2026-07-01T10:05:00Z")
+        code, out = run("--dir", root, "audit", "--run", "--json",
+                        now="2026-07-01T10:10:00Z")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["results"][0]["verdict"], "HONORED")
+
+    def test_status_kept_means_honored_not_released(self):
+        root = self._proj("screenshot")
+        run("--dir", root, "plan", "row-42", "--means", "live",
+            "--accept", "false",                       # will NOT honor
+            "--date", "2026-07-01", now="2026-07-01T08:30:00Z")
+        run("--dir", root, "log-win", "row-42", "--proof", self._shot(root),
+            now="2026-07-01T09:00:00Z")
+        run("--dir", root, "release", "--n", "1", now="2026-07-01T09:30:00Z")
+        run("--dir", root, "audit", "--run", now="2026-07-01T10:00:00Z")
+        code, out = run("--dir", root, "status", now="2026-07-01T10:05:00Z")
+        # released but not honored -> status must NOT claim it kept
+        self.assertIn("0 of 1 HONORED", out)
+        self.assertIn("RELEASED ≠ KEPT", out)
+
+
 if __name__ == "__main__":
     unittest.main()
 
