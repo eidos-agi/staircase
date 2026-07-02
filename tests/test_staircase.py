@@ -621,6 +621,62 @@ class TestPromiseAuditor(unittest.TestCase):
         self.assertIn("RELEASED ≠ KEPT", out)
 
 
+class TestVisualAttestation(unittest.TestCase):
+    """When require_visual_attestation is on, HONORED needs a recorded 'I
+    opened the evidence and it shows X' — a screenshot nobody looked at is not
+    proof. This is the gate that would have caught a wrong/blank screenshot."""
+
+    def _proj(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(
+            root, ignore_errors=True))
+        run("--dir", str(root), "init", "--cadence", "5", "--by", "sam",
+            now="2026-07-01T08:00:00Z")
+        cfg = root / ".staircase" / "config.yml"
+        cfg.write_text(cfg.read_text()
+                       .replace("burden_of_proof: artifact",
+                                "burden_of_proof: screenshot")
+                       .replace("require_visual_attestation: false",
+                                "require_visual_attestation: true"))
+        return str(root)
+
+    def _shot(self, root):
+        p = Path(root) / "evidence.png"
+        p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+        return str(p)
+
+    def test_honored_blocked_until_attested(self):
+        root = self._proj()
+        run("--dir", root, "plan", "row-42", "--means", "live",
+            "--accept", "true", "--date", "2026-07-01",
+            now="2026-07-01T08:30:00Z")
+        run("--dir", root, "log-win", "row-42", "--proof", self._shot(root),
+            now="2026-07-01T09:00:00Z")
+        run("--dir", root, "release", "--n", "1", now="2026-07-01T09:30:00Z")
+        # accept passes + screenshot exists, but nobody looked -> UNVERIFIED
+        code, out = run("--dir", root, "audit", "--run", "--json",
+                        now="2026-07-01T10:00:00Z")
+        d = json.loads(out)
+        self.assertEqual(d["results"][0]["verdict"], "UNVERIFIED")
+        self.assertIn("attest", d["results"][0]["reason"].lower())
+        # now someone opens the evidence and attests -> HONORED
+        run("--dir", root, "attest", "row-42",
+            "--shows", "row 42 renders $46.4 on the dashboard", "--by", "sam",
+            now="2026-07-01T10:05:00Z")
+        code, out = run("--dir", root, "audit", "--run", "--json",
+                        now="2026-07-01T10:10:00Z")
+        d = json.loads(out)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(d["results"][0]["verdict"], "HONORED")
+        self.assertTrue(d["results"][0]["attested"])
+
+    def test_attest_requires_shows_and_named_promise(self):
+        root = self._proj()
+        # not a named promise
+        code, _ = run("--dir", root, "attest", "ghost", "--shows", "x")
+        self.assertEqual(code, 2)
+
+
 class TestSplitUnderPressure(unittest.TestCase):
     """Under deadline pressure the plugin pushes bisection for half-done
     visibility: split an at-risk promise into landable halves, and if a half

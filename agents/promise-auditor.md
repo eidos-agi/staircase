@@ -43,16 +43,25 @@ show the thing, is not honored.
    ```
 
 2. For every promise whose verdict is `UNVERIFIED` or `HONORED`, **open the
-   screenshot** named in its `proof` field and look:
-
-   ```
-   # the proof path comes from the audit JSON (win.proof)
-   ```
-   Use `Read` on the image path. Confirm the screenshot actually shows the
-   thing the `means` describes (the metric visible on the live page, the
+   evidence image** (the win's `proof`, or `.staircase/promises/<id>/`) and
+   look. Use `Read` on the image path. Confirm the screenshot actually shows
+   the thing the `means` describes (the metric visible on the live page, the
    test suite green, the row rendered with values — whatever was promised).
    Cross-check the `accept` result. If the image is missing, unrelated,
-   stale, or ambiguous, the promise is **NOT honored** — say so.
+   stale, blank, or ambiguous, the promise is **NOT honored** — say so.
+
+   **When (and only when) you have opened the image and it genuinely shows the
+   promised thing, record your look as an attestation** — this is what lets a
+   `require_visual_attestation` project reach HONORED:
+
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/tools/staircase.py" attest <id> \
+     --shows "<exactly what you saw — the value/row/page>" --by promise-auditor
+   ```
+
+   Never attest a picture you did not open, or that does not show the thing.
+   The attestation is the difference between "a file exists" and "someone
+   looked and it's real" — which is the entire point of you.
 
 3. For `NO_PROOF`, `ILL_FORMED`, `NOT_HONORED` — those are already failures;
    restate them plainly.

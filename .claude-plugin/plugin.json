@@ -1,7 +1,7 @@
 {
   "name": "staircase",
   "description": "An honest rendering layer between bursty production and a steady delivery SLA: verified wins are banked in a buffer and released on a cadence stakeholders can trust, with the full ledger one click beneath. Every project gets a .staircase/ folder — the shared expectations record for human and agent teammates alike — and a Staircase Manager steering subagent that infers real progress from footprints (ledgers, git, transcript tail — never claims) and steers the working session back on course only when drift is detected.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "author": {
     "name": "Eidos AGI"
   },

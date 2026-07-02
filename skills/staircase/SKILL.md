@@ -108,6 +108,13 @@ closed:
 `staircase lint` refuses to pass an evening report while any released promise
 is unhonored. Released is not kept until the auditor says so.
 
+**A picture nobody opened is not proof.** With `require_visual_attestation:
+true`, HONORED also needs a recorded `staircase attest <id> --shows "..."` —
+a human/agent who opened the evidence (in `.staircase/promises/<id>/`) and
+stated what it shows. File-exists + accept-passes holds at `UNVERIFIED` until
+someone has looked. The `promise-auditor` subagent records that look; never
+attest an image you did not open.
+
 ## The daily loop
 
 ```bash

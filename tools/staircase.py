@@ -365,6 +365,13 @@ DEFAULT_CONFIG = {
     #                  (the strongest, hardest-to-fake burden; recommended for
     #                  anything a stakeholder should be able to SEE)
     "burden_of_proof": "artifact",
+    # --- visual attestation ---
+    # When true, a screenshot-backed promise cannot reach HONORED on
+    # file-exists + accept-passes alone — a human/agent must OPEN the evidence
+    # and record what it shows (`staircase attest <id> --shows "..."`). A
+    # screenshot nobody looked at is not proof. Recommended with the screenshot
+    # burden. Per-promise evidence lives in `.staircase/promises/<id>/`.
+    "require_visual_attestation": False,
 }
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff",
@@ -394,6 +401,7 @@ class Project:
         self.releases = read_jsonl(sc / "releases.jsonl")
         self.steering = read_jsonl(sc / "steering.jsonl")
         self.audits = read_jsonl(sc / "audits.jsonl")
+        self.attests = read_jsonl(sc / "attests.jsonl")
         self._plan_events = read_jsonl(sc / "plans.jsonl")
         self.plans = [e for e in self._plan_events
                       if e.get("type") == "plan"]
@@ -508,6 +516,20 @@ class Project:
             for i, c in (pl.get("criteria") or {}).items():
                 out[i] = c
         return out
+
+    def attestation_for(self, pid: str) -> dict | None:
+        """The latest recorded visual attestation for a promise — proof that a
+        human/agent OPENED the evidence and said what it shows. None if nobody
+        has looked yet."""
+        latest = None
+        for a in self.attests:
+            if a.get("id") == pid:
+                latest = a
+        return latest
+
+    def evidence_dir(self, pid: str) -> Path:
+        """Where a promise's evidence lives: `.staircase/promises/<id>/`."""
+        return self.dir / "promises" / pid
 
     def audit_verdicts(self) -> dict[str, str]:
         """The most recent independent-audit verdict per promise id (from the
@@ -1435,9 +1457,56 @@ def audit_promise(p: "Project", pid: str, run_accept: bool) -> dict:
         # no runnable check, but a screenshot burden that is met stands as
         # deterministic evidence pending the subagent's visual confirmation
         verdict = "UNVERIFIED"
-    return {"id": pid, "verdict": verdict, "released": released,
-            "means": means, "accept": accept, "proof": proof,
-            "screenshot": is_shot, "reason": reason}
+    # 4) VISUAL ATTESTATION GATE — deterministic checks are the floor, not the
+    # ceiling. A screenshot nobody opened is not proof: when the project
+    # requires it, HONORED needs a recorded attestation that someone viewed the
+    # evidence and said what it shows. This is the check that stops a wrong or
+    # blank screenshot from passing on file-exists + accept alone.
+    attested = p.attestation_for(pid)
+    require_attest = (bool(p.config.get("require_visual_attestation"))
+                      and is_shot)
+    if verdict == "HONORED" and require_attest and not attested:
+        verdict = "UNVERIFIED"
+        reason = ("deterministic checks pass, but HONORED requires a VISUAL "
+                  "attestation — open the evidence image and run `staircase "
+                  f"attest {pid} --shows \"<what you saw>\"`. A screenshot "
+                  "nobody looked at is not proof.")
+    out = {"id": pid, "verdict": verdict, "released": released,
+           "means": means, "accept": accept, "proof": proof,
+           "screenshot": is_shot, "attested": bool(attested), "reason": reason}
+    if attested:
+        out["attested_shows"] = attested.get("shows")
+    return out
+
+
+def cmd_attest(a) -> int:
+    """Record a VISUAL attestation: a human/agent opened this promise's
+    evidence and states what it shows. This is the ledgered "I looked at it"
+    that a screenshot burden actually requires — without it, `require_visual_
+    attestation` projects hold the promise at UNVERIFIED no matter what the
+    file-exists and accept checks say."""
+    p = load_project(a.dir)
+    tiso = _now().date().isoformat()
+    named = {i for pl in p.plans if pl["date"] <= tiso for i in pl["ids"]}
+    if a.id not in named:
+        raise _fail(f"{a.id!r} is not a named promise (plans.jsonl)")
+    if not a.shows or not a.shows.strip():
+        raise _fail("--shows is required: state plainly what the evidence "
+                    "shows (the value/row/page you actually saw)")
+    ed = p.evidence_dir(a.id)
+    imgs = [f for f in (ed.glob("*") if ed.is_dir() else [])
+            if f.suffix.lower() in IMAGE_EXTS]
+    p.append("attests.jsonl", {"type": "attest", "id": a.id,
+                               "shows": a.shows.strip(),
+                               "by": a.by or "unknown",
+                               "evidence_dir": str(ed),
+                               "evidence_files": [f.name for f in imgs]})
+    note = (f"({len(imgs)} image(s) in {ed})" if imgs else
+            f"(no image found in {ed} — attesting anyway, but evidence should "
+            "live there)")
+    print(f"staircase: visual attestation recorded for {a.id} {note}\n"
+          f"  shows: {a.shows.strip()}\n  by: {a.by or 'unknown'}")
+    return 0
 
 
 def cmd_audit(a) -> int:
@@ -1790,6 +1859,17 @@ def main(argv=None) -> int:
                        help="update the installed plugin from its source repo "
                             "(git ff-only); or use `/plugin update staircase`")
     s.set_defaults(fn=cmd_self_update)
+
+    s = sub.add_parser("attest",
+                       help="record a VISUAL attestation — you opened the "
+                            "evidence and state what it shows (required for "
+                            "HONORED when require_visual_attestation is on)")
+    s.add_argument("id", help="the named promise whose evidence you viewed")
+    s.add_argument("--shows", required=True,
+                   help="what the evidence shows, in plain words (the "
+                        "value/row/page you actually saw)")
+    s.add_argument("--by", help="who looked (person or agent id)")
+    s.set_defaults(fn=cmd_attest)
 
     s = sub.add_parser("audit",
                        help="INDEPENDENT promise auditor: verify each promise "

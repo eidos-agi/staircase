@@ -264,11 +264,28 @@ verifies every released promise **independently**, and fails closed:
 
 Any released promise that lands on `ILL_FORMED` / `NO_PROOF` / `NOT_HONORED`
 makes the audit **fail** — a released-but-unhonored promise is a broken
-promise, said loudly. The deterministic checks are the floor; the bundled
-**`promise-auditor` subagent** goes further — it opens each screenshot and
-confirms the image actually shows the promised thing, because a picture that
-doesn't show it is not proof. `staircase lint` treats a failed audit as a
-send-gate: you cannot mail a report claiming promises the auditor rejected.
+promise, said loudly. `staircase lint` treats a failed audit as a send-gate:
+you cannot mail a report claiming promises the auditor rejected.
+
+### The visual-attestation gate — a picture nobody opened is not proof
+
+File-exists + accept-passes is the floor, not the ceiling: a screenshot can be
+blank, stale, or of the *wrong* row and still pass both. So with
+`require_visual_attestation: true`, HONORED needs one more thing — a recorded
+**attestation** that a human or agent actually *opened* the evidence and said
+what it shows:
+
+```
+staircase attest row-42 --shows "row 42 renders $46.4 on the live dashboard" --by me
+```
+
+Until that exists, the promise holds at `UNVERIFIED` no matter what the
+file-existence and accept checks say. Evidence lives per-promise in
+`.staircase/promises/<id>/`, and the bundled **`promise-auditor` subagent**
+does exactly this: it opens each image, confirms it shows the promised thing,
+and only then records the attestation — never for a picture it hasn't seen.
+This is the check that stops "I have a file" from masquerading as "someone
+looked and it's real."
 
 ## The 2×2
 

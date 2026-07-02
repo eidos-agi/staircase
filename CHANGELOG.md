@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 — 2026-07-02
+
+The visual-attestation gate — a picture nobody opened is not proof.
+
+- **`staircase attest <id> --shows "..." [--by ...]`** records that a
+  human/agent opened a promise's evidence and states what it shows, appended
+  to `attests.jsonl`.
+- **`require_visual_attestation: true`** (config) makes HONORED require that
+  attestation: with it on, a screenshot-backed promise that passes file-exists
+  + accept still holds at `UNVERIFIED` until someone has *looked*. This closes
+  the hole where a blank/stale/wrong-row screenshot passed on file-existence
+  alone. Default off (backward compatible).
+- Per-promise evidence has a formal home: **`.staircase/promises/<id>/`**.
+- The `promise-auditor` subagent now records its look as an attestation — only
+  after opening the image and confirming it shows the promised thing.
+- 87 tests.
+
 ## 0.9.0 — 2026-07-02
 
 - **The Playbook** — a second bundled skill (`skills/playbook`): a curated set
