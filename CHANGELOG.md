@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 — 2026-07-02
+
+- **The Playbook** — a second bundled skill (`skills/playbook`): a curated set
+  of time-tested mental models for the judgment calls around delivery
+  (business, complexity, design, architecture, decision-making, mission
+  command). Each lens has a trigger and a concrete move; several wire into
+  Staircase's own mechanics (elephant carpaccio ↔ `split`, two-way doors ↔
+  reversible-action confirmation, sell-the-hole ↔ outcome `--means`,
+  commander's intent ↔ the mission line). Invoked when the question is "how
+  should I think about this?"
+- Adds `examples/` (runnable demo + walkthrough) and the agent brief now
+  counts audit-HONORED (0.8.1) so every surface tells one story.
+
 ## 0.8.0 — 2026-07-02
 
 Under pressure, bisect. When a deadline is at risk the plugin pushes

@@ -285,6 +285,19 @@ Work without Promise is noise. Promise without Production is invisible.
 Production without Mission is busywork. Staircase keeps all four in one
 ledger.
 
+## The Playbook — lenses for hard calls
+
+Staircase bundles a second skill: a curated **playbook of time-tested mental
+models** ([`skills/playbook`](skills/playbook/SKILL.md)) for the judgment
+calls that surround delivery — business, complexity, design, architecture,
+decision-making, and mission command. Each lens has a *trigger* ("reach for
+this when…") and a concrete *move*, and several wire straight into
+Staircase's mechanics: elephant carpaccio ↔ `split`, two-way-doors ↔
+reversible-action confirmation, sell-the-hole ↔ a promise's outcome
+`--means`, commander's intent ↔ the mission line. An agent facing "how should
+I think about this?" — not "what does this command do?" — consults the
+Playbook. Lenses, not laws.
+
 ## See it work
 
 [`examples/`](examples/) has a runnable, self-contained demo and a narrative
