@@ -195,6 +195,18 @@ on or explicitly rebut** in its next message — never silently ignore.
 An optional Stop-hook nudge ships default-OFF: export
 `STAIRCASE_MANAGER_NUDGE=1` to enable it (see the skill for details).
 
+## Promises come first
+
+Everything in Staircase serves one thing: **keeping the promises you named in
+advance.** Cadence, buffer, and streak are instruments in service of that —
+none of them ever outranks a promise at risk. The brief, the status
+dashboard, and the Manager subagent all lead with the open promises and the
+time left on them, and all carry the same instruction: **work backwards from
+each promise** — name what must be true for it to land, then do exactly that
+until it is kept or honestly MISS-logged. A dropped promise is the only true
+failure; a thin buffer or a missed cadence is survivable and honestly
+reported. This is the discipline the whole tool exists to enforce.
+
 ## The 2×2
 
 Staircase manages four squares and their alignment:

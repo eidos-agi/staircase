@@ -363,6 +363,9 @@ class TestAgentAccountability(Base):
                         now="2026-07-01T11:00:00Z")
         self.assertEqual(code, 0, out)
         for needle in ("=== STAIRCASE AGENT BRIEF — 2026-07-01 ===",
+                       # promises lead, loud, with the work-backwards charge
+                       "PROMISES ARE THE MOST IMPORTANT THING",
+                       "Work BACKWARDS from each open promise",
                        "SLA: 5 verified wins released/day — set 2026-07-01 "
                        "by sam",
                        "Scope (today's named plan): w1, w2",

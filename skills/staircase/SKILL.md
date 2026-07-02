@@ -48,13 +48,23 @@ anyone says "but I thought you were doing 10 a day."
 Any agent — Claude included — starting work in a repo that contains a
 `.staircase/` folder works under this contract:
 
+0. **PROMISES ARE THE MOST IMPORTANT THING.** Above every other rule: the
+   named-in-advance promises in `plans.jsonl` are the point of the whole
+   system. Keeping them outranks cadence, buffer, streak, polish, and every
+   unnamed idea. **Work backwards from each open promise** — name what must
+   be true for it to land, then do exactly that and nothing else until it is
+   kept or honestly MISS-logged. A dropped promise is the only true failure;
+   a thin buffer or a missed cadence is survivable and honestly reportable. A
+   broken promise is not. Stay focused on the promises and work backwards to
+   get there.
 1. **Orient first.** Run `staircase agent-brief` before anything else
-   (the plugin's SessionStart hook does this automatically). The brief is
-   the orientation: current SLA, today's named scope, buffer, alarms,
-   definition of done, unresolved stakeholder objections.
-2. **The day's plan is the scope.** The named items in today's plan are
-   what you are working toward. Expanding scope requires a
-   `staircase plan <ids>` entry in plans.jsonl — never silent drift.
+   (the plugin's SessionStart hook does this automatically). The brief now
+   leads with the open promises and the time left on them, then the SLA,
+   scope, buffer, alarms, definition of done, and unresolved objections.
+2. **The day's plan is the scope, and the plan is a set of promises.** The
+   named items in today's plan are what you are working toward. Expanding
+   scope requires a `staircase plan <ids>` entry in plans.jsonl — never
+   silent drift; shrinking it requires an honest `staircase miss`.
 3. **"Done" means the proof gate passed.** A win exists only when
    `staircase log-win <id> --proof <artifact>` succeeds under this
    project's proof adapters. An agent may NEVER claim completion

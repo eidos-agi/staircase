@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — 2026-07-02
+
+Promises first, emphatically. The named-in-advance promises are the point of
+the whole system; everything else serves them.
+
+- `agent-brief` leads with a loud PROMISES banner and the open promises +
+  time left, with the standing charge to **work backwards from each promise**.
+  Cadence/buffer/streak are explicitly framed as serving the promises.
+- `status` puts PROMISES first ("← the one that matters most") above SLA,
+  buffer, and streak.
+- The Staircase Manager gains a PRIME DIRECTIVE preamble: promises outrank
+  all five watch-domains; a dropped promise is the only true failure.
+- The skill's agent contract adds rule 0: promises are the most important
+  thing; work backwards to keep them.
+
 ## 0.4.0 — 2026-07-02
 
 Time awareness. Briefs, status and manager steering now know what time it

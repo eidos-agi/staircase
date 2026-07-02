@@ -695,15 +695,19 @@ def cmd_status(a) -> int:
         return 4 if (alarms and a.check) else 0
     print(f"Staircase status — {today.isoformat()} (operator dashboard: "
           "this is the internal truth)")
+    # promises first and loudest — the one number that matters most
+    open_note = (f" · {len(open_plan)} OPEN: {', '.join(open_plan)}"
+                 if open_plan else "")
+    print(f"  PROMISES: {kept} of {named} named-in-advance kept  "
+          f"← the one that matters most{open_note}")
+    print(f"  {_clock_line(tf)}")
     print(f"  SLA:      {p.cadence} verified wins released per day "
           f"(expectations.md, {n_hist} cadence "
-          f"entr{'y' if n_hist == 1 else 'ies'})")
+          f"entr{'y' if n_hist == 1 else 'ies'}) — serves the promises")
     print(f"  Buffer:   {len(banked)} verified win(s) banked"
           + (f" (oldest: {banked[0]['id']})" if banked else ""))
     print(f"  Today:    {released_today} released")
     print(f"  Streak:   {stk} day(s) on cadence")
-    print(f"  Promises: {kept} of {named} named-in-advance kept")
-    print(f"  {_clock_line(tf)}")
     print(f"  Ledgers:  {len(p.wins)} wins · {len(p.releases)} release "
           f"event(s) · {len(p.plans)} plan(s) — {p.dir}")
     if alarms:
@@ -1045,6 +1049,21 @@ def cmd_agent_brief(a) -> int:
     if p.mission:
         # the FIRST line, before the SLA: the why, then the fence
         L.append(f"Mission: {p.mission}")
+    # PROMISES come first and loudest — they are the point of the whole system.
+    L.append(">>> PROMISES ARE THE MOST IMPORTANT THING. Everything else "
+             "(cadence, buffer, streak) exists to serve them and NEVER "
+             "outranks them. <<<")
+    if open_plan:
+        rem = tf["remaining_human"]
+        L.append(f"Promises: kept {kept} of {named} named today · "
+                 f"{len(open_plan)} STILL OPEN ({rem}): "
+                 + ", ".join(open_plan) + ". Work BACKWARDS from each open "
+                 "promise — name what must be true for it to land, then do "
+                 "exactly that. Nothing else earns your attention until every "
+                 "promise is kept or honestly MISS-logged.")
+    else:
+        L.append(f"Promises: kept {kept} of {named} named today · none open — "
+                 "hold the line; every promise released before its deadline.")
     L += ["Contract: bursty production against a delivery SLA with a "
          "verified buffer. Every production and release event is ledgered, "
          "timestamped at occurrence, never backdated. You are working "
@@ -1061,7 +1080,7 @@ def cmd_agent_brief(a) -> int:
             + ", ".join(m['id'] for m in misses_today)
             if misses_today else ""),
          f"Buffer: {len(banked)} banked · streak "
-         f"{p.streak(today)} day(s) · promises kept {kept} of {named}",
+         f"{p.streak(today)} day(s) (buffer/streak serve the promises above)",
          _clock_line(tf),
          f"Definition of done: proof adapter(s) [{adapters}] — a win "
          "EXISTS only when `staircase log-win <id> --proof <artifact>` "
