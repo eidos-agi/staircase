@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 — 2026-07-02
+
+Promises get a definition and an independent auditor. "Released" no longer
+masquerades as "kept."
+
+- A promise now carries a **meaning** and an **acceptance criterion**:
+  `plan <id> --means "<definition of done>" --accept "<cmd, 0 iff honored>"`,
+  stored per id in `plans.jsonl`.
+- **Burden of proof**: `burden_of_proof: screenshot` in config makes
+  `log-win` refuse any proof that is not an existing image file — the
+  hardest-to-fake evidence that a thing is actually done.
+- **`staircase audit`** — the independent promise auditor. Verdicts per
+  promise: `ILL_FORMED` (no criterion), `NO_PROOF` (missing/again-not a
+  screenshot), `NOT_HONORED` (accept check failed), `UNVERIFIED` (well-formed,
+  awaiting the subagent's visual confirmation), `HONORED`. Fails closed on any
+  released-but-unhonored promise. Verdicts append to `audits.jsonl`.
+- **`promise-auditor` subagent** — opens each screenshot and confirms it
+  actually shows the promised thing; a picture that doesn't show it is not
+  proof.
+- **`staircase lint`** treats a failed/absent audit as an evening-report
+  send-gate (for projects that adopt verifiable promises).
+
 ## 0.5.0 — 2026-07-02
 
 Promises first, emphatically. The named-in-advance promises are the point of

@@ -84,18 +84,44 @@ Any agent — Claude included — starting work in a repo that contains a
 Human and agent teammates work from the same ledgers under the same rules
 — `.staircase/` is the shared alignment file for both.
 
+## What a promise is (and how "kept" is proven)
+
+A promise is a named commitment with a **meaning** and a **burden of proof** —
+never a bare id. `staircase plan <id> --means "<definition of done>" --accept
+"<command that exits 0 iff honored>"`. The strongest burden of proof is a
+**screenshot showing the thing actually done** (`burden_of_proof: screenshot`
+in config → `log-win` refuses any proof that is not an existing image file).
+
+"Kept" is not "released." Releasing marks a promise delivered in the ledger;
+the ledger can be wrong. So an **independent auditor** (`staircase audit`, and
+the `promise-auditor` subagent) verifies every released promise and fails
+closed:
+
+- **ILL_FORMED** — no `--means`/`--accept`: an unverifiable promise is not a
+  promise.
+- **NO_PROOF** — no win, or the proof is not a screenshot when one is required.
+- **NOT_HONORED** — the `--accept` check was run and failed.
+- **HONORED** — well-formed, burden met, accept passes — and, for the final
+  word, the `promise-auditor` subagent has OPENED the screenshot and confirmed
+  it shows the promised thing. A picture that doesn't show it is not proof.
+
+`staircase lint` refuses to pass an evening report while any released promise
+is unhonored. Released is not kept until the auditor says so.
+
 ## The daily loop
 
 ```bash
 staircase init --cadence 5 --by <owner> --stakeholder <name> \
     --mission "<the one-line why>"        # once per project
-staircase plan m14 m15 m16 m17 m18        # morning: name the day's five
+staircase plan m14 --means "renders live on the dashboard" \
+    --accept "curl -sf .../contract | grep -q m14.shipped"   # a real promise
 staircase report --slot morning           # render + archive the morning report
-# ... produce; every verified win, the moment it verifies:
-staircase log-win m14 --proof https://.../proof/m14
+# ... produce; every verified win, the moment it verifies (screenshot proof):
+staircase log-win m14 --proof ~/shots/m14-live.png
 staircase release                         # draw cadence-N oldest banked wins
+staircase audit --run                     # INDEPENDENT auditor — released == kept?
 staircase report --slot evening           # render the evening report
-staircase lint .staircase/reports/<date>-evening.md   # send-gate; exit 0 or do not send
+staircase lint .staircase/reports/<date>-evening.md   # send-gate (incl. audit)
 staircase status                          # operator dashboard: the internal truth
 ```
 

@@ -207,6 +207,47 @@ until it is kept or honestly MISS-logged. A dropped promise is the only true
 failure; a thin buffer or a missed cadence is survivable and honestly
 reported. This is the discipline the whole tool exists to enforce.
 
+## What a promise is (and how it's proven)
+
+A promise in Staircase is not just an id in a list. It has three parts, and
+an independent auditor checks all three:
+
+1. **What is promised** — a named id in `plans.jsonl` (`row-42-fec-per-lift`).
+2. **What it means** — the definition of done, in one line (`--means "FEC
+   per lift renders live on the dashboard"`). A promise with no meaning is
+   not verifiable, so it is not a real promise.
+3. **How it's proven** — an acceptance criterion (`--accept "<command that
+   exits 0 iff honored>"`) and a **burden of proof**. The strongest burden,
+   and the recommended one, is a **screenshot showing the thing actually
+   done** (`burden_of_proof: screenshot` — then `log-win` refuses any proof
+   that is not an existing image file).
+
+```
+staircase plan row-42-fec-per-lift \
+  --means "FEC per lift renders live on the dashboard" \
+  --accept "curl -sf https://.../contract | grep -q '\"row\":42.*shipped_at'"
+```
+
+### The independent promise auditor
+
+Releasing a promise marks it delivered in the ledger — but the ledger can be
+wrong (a row "shipped" that does not actually render). So `staircase audit`
+verifies every released promise **independently**, and fails closed:
+
+- **Is the promise logical?** No `means`/`accept` → `ILL_FORMED`. An
+  unverifiable promise cannot be kept.
+- **Is the burden of proof met?** No win, or a proof that is not a screenshot
+  when one is required → `NO_PROOF`.
+- **Is it honored?** The `accept` check is run; a non-zero exit → `NOT_HONORED`.
+
+Any released promise that lands on `ILL_FORMED` / `NO_PROOF` / `NOT_HONORED`
+makes the audit **fail** — a released-but-unhonored promise is a broken
+promise, said loudly. The deterministic checks are the floor; the bundled
+**`promise-auditor` subagent** goes further — it opens each screenshot and
+confirms the image actually shows the promised thing, because a picture that
+doesn't show it is not proof. `staircase lint` treats a failed audit as a
+send-gate: you cannot mail a report claiming promises the auditor rejected.
+
 ## The 2×2
 
 Staircase manages four squares and their alignment:

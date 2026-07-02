@@ -342,7 +342,26 @@ DEFAULT_CONFIG = {
     "stakeholder_tz": "",
     "deadline_local": "18:00",
     "morning_local": "07:00",
+    # --- burden of proof ---
+    # What a win's --proof must be for the independent auditor to accept it:
+    #   "artifact"   — any URL or file path (permissive default)
+    #   "screenshot" — an existing image FILE showing the thing completed
+    #                  (the strongest, hardest-to-fake burden; recommended for
+    #                  anything a stakeholder should be able to SEE)
+    "burden_of_proof": "artifact",
 }
+
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff",
+              ".heic", ".pdf"}
+
+
+def _is_screenshot(proof: str) -> bool:
+    """True iff proof points at an existing image file — the screenshot
+    burden of proof. A URL or a missing file is not a screenshot."""
+    if not proof:
+        return False
+    pth = Path(proof)
+    return pth.suffix.lower() in IMAGE_EXTS and pth.is_file()
 
 
 # ----------------------------------------------------------- project state
@@ -358,6 +377,7 @@ class Project:
         self.wins = read_jsonl(sc / "wins.jsonl")
         self.releases = read_jsonl(sc / "releases.jsonl")
         self.steering = read_jsonl(sc / "steering.jsonl")
+        self.audits = read_jsonl(sc / "audits.jsonl")
         self._plan_events = read_jsonl(sc / "plans.jsonl")
         self.plans = [e for e in self._plan_events
                       if e.get("type") == "plan"]
@@ -451,6 +471,22 @@ class Project:
 
     def plan_for(self, date: str) -> list[str]:
         return [i for p in self.plans if p["date"] == date for i in p["ids"]]
+
+    def promise_criteria(self) -> dict[str, dict]:
+        """Latest {means, accept} per promise id across all plan events —
+        the definition of what each promise MEANS and how honoring it is
+        checked. Absent → the promise is ill-formed (unverifiable)."""
+        out: dict[str, dict] = {}
+        for pl in self.plans:                     # file order == ts order
+            for i, c in (pl.get("criteria") or {}).items():
+                out[i] = c
+        return out
+
+    def win_for(self, wid: str) -> dict | None:
+        for w in self.wins:
+            if w["id"] == wid:
+                return w
+        return None
 
     # -- appends ----------------------------------------------------------------
     def append(self, filename: str, event: dict) -> dict:
@@ -575,6 +611,12 @@ def cmd_log_win(a) -> int:
     if any(w["id"] == a.id for w in p.wins):
         raise _fail(f"win id {a.id!r} already ledgered (ids are unique; "
                     "points earned are earned)")
+    burden = str(p.config.get("burden_of_proof", "artifact"))
+    if burden == "screenshot" and not _is_screenshot(a.proof):
+        raise _fail(
+            f"burden of proof is 'screenshot': --proof must be an existing "
+            f"image file showing {a.id!r} completed, got {a.proof!r}. A URL "
+            "or a missing file does not prove it was done — capture the screen.")
     if a.gate:
         rc = subprocess.run(a.gate, shell=True).returncode
         if rc != 0:
@@ -642,10 +684,23 @@ def cmd_plan(a) -> int:
     if date < _now().date().isoformat():
         raise _fail("plans are named in advance — a plan for a past date "
                     "would be a backdated promise")
-    ev = p.append("plans.jsonl", {"type": "plan", "date": date,
-                                  "ids": list(a.ids)})
+    event = {"type": "plan", "date": date, "ids": list(a.ids)}
+    means = getattr(a, "means", None)
+    accept = getattr(a, "accept", None)
+    if means or accept:
+        # the acceptance criterion: what the promise MEANS and how honoring it
+        # is checked — stored per id so the auditor can verify each one
+        event["criteria"] = {i: {**({"means": means} if means else {}),
+                                 **({"accept": accept} if accept else {})}
+                             for i in a.ids}
+    ev = p.append("plans.jsonl", event)
+    tail = (f" — means: {means!r}" if means else "") + \
+           (f" · accept: {accept!r}" if accept else "")
+    if not (means or accept):
+        tail = " — NO acceptance criterion yet (the auditor will flag these " \
+               "as ill-formed; add --means/--accept so 'kept' is verifiable)"
     print(f"staircase: {len(a.ids)} commitment(s) named for {date} at "
-          f"{ev['ts']}: " + ", ".join(a.ids))
+          f"{ev['ts']}: " + ", ".join(a.ids) + tail)
     return 0
 
 
@@ -873,6 +928,28 @@ def lint_report(md: str, p: Project) -> list[str]:
                        "ledgers; re-render, never hand-edit numbers")
 
     body = MARKER_RE.sub("", md)
+
+    # 1b. promise audit send-gate — applies once a project adopts verifiable
+    # promises (any acceptance criteria, or a screenshot burden). An evening
+    # report must not go out claiming promises the independent auditor
+    # rejected; a released promise with ILL_FORMED / NO_PROOF / NOT_HONORED is
+    # a broken promise. Projects that never set criteria skip this gate.
+    uses_promises = (bool(p.promise_criteria())
+                     or str(p.config.get("burden_of_proof")) == "screenshot")
+    if slot == "evening" and uses_promises:
+        last_audit = p.audits[-1] if p.audits else None
+        released_today = {i for r in p.releases if r["ts"][:10] == date
+                          for i in r["ids"]}
+        if released_today and not last_audit:
+            bad.append("promise audit missing — this project uses verifiable "
+                       "promises, so an evening report that released promises "
+                       "must be preceded by `staircase audit` (released is "
+                       "not kept until the auditor confirms it)")
+        elif last_audit and last_audit.get("failures"):
+            bad.append("promise audit FAILED for: "
+                       + ", ".join(last_audit["failures"])
+                       + " — released but not honored; do not send a report "
+                       "claiming these kept (ship the real thing or MISS-log)")
 
     # 2. required elements
     if "Full ledger" not in body:
@@ -1123,6 +1200,118 @@ def cmd_agent_check(a) -> int:
         print(json.dumps({"systemMessage": msg}))
     else:
         print(msg)
+    return 0
+
+
+# -------------------------------------------------------------- audit
+def audit_promise(p: "Project", pid: str, run_accept: bool) -> dict:
+    """Independently verify ONE promise. Deterministic checks only — the CLI
+    confirms the promise is well-formed and that its burden of proof exists;
+    the promise-auditor SUBAGENT does the content check (does the screenshot
+    actually SHOW the thing). Verdicts:
+      ILL_FORMED   — no acceptance criterion; the promise isn't verifiable
+      NO_PROOF     — no win, or proof missing / not a screenshot when required
+      NOT_HONORED  — an --accept check was run and failed
+      UNVERIFIED   — well-formed with proof, but no command check run yet
+                     (needs the auditor subagent to view the screenshot)
+      HONORED      — well-formed, burden met, and (if run) the accept passed
+    """
+    crit = p.promise_criteria().get(pid, {})
+    means, accept = crit.get("means"), crit.get("accept")
+    released = pid in p.released_ids()
+    win = p.win_for(pid)
+    burden = str(p.config.get("burden_of_proof", "artifact"))
+    reasons = []
+    # 1) logical validity: is this even a well-formed, checkable promise?
+    if not (means or accept):
+        return {"id": pid, "verdict": "ILL_FORMED", "released": released,
+                "reason": "no acceptance criterion (--means/--accept): a "
+                          "promise that cannot be checked is not a promise"}
+    # 2) burden of proof
+    if win is None:
+        return {"id": pid, "verdict": "NO_PROOF", "released": released,
+                "means": means, "accept": accept,
+                "reason": "no win ledgered for this promise"}
+    proof = win.get("proof", "")
+    is_shot = _is_screenshot(proof)
+    if burden == "screenshot" and not is_shot:
+        return {"id": pid, "verdict": "NO_PROOF", "released": released,
+                "means": means, "accept": accept, "proof": proof,
+                "reason": "burden is screenshot but proof is not an existing "
+                          "image file"}
+    # 3) honor check (deterministic, if a command is provided and requested)
+    verdict, reason = "UNVERIFIED", (
+        "well-formed with proof; command not run — the promise-auditor "
+        "subagent must VIEW the proof to confirm it shows the thing")
+    if accept and run_accept:
+        rc = subprocess.run(accept, shell=True,
+                            capture_output=True).returncode
+        verdict = "HONORED" if rc == 0 else "NOT_HONORED"
+        reason = (f"accept check `{accept}` exited {rc}"
+                  + ("" if rc == 0 else " — promise NOT honored"))
+    elif not accept:
+        # no runnable check, but a screenshot burden that is met stands as
+        # deterministic evidence pending the subagent's visual confirmation
+        verdict = "UNVERIFIED"
+    return {"id": pid, "verdict": verdict, "released": released,
+            "means": means, "accept": accept, "proof": proof,
+            "screenshot": is_shot, "reason": reason}
+
+
+def cmd_audit(a) -> int:
+    """The INDEPENDENT promise auditor. For each promise in scope, verify it
+    is (a) logically well-formed — it has an acceptance criterion — and (b)
+    honored — its burden of proof exists and any accept check passes. Writes
+    a verdict record to audits.jsonl and FAILS CLOSED: if any RELEASED promise
+    is not HONORED/UNVERIFIED-with-proof, exit non-zero. A released promise
+    that the auditor cannot confirm is a broken promise, loudly."""
+    p = load_project(a.dir)
+    tiso = _now().date().isoformat()
+    scope = a.scope or "released"
+    released = p.released_ids()
+    planned = list(dict.fromkeys(
+        i for pl in p.plans if pl["date"] <= tiso for i in pl["ids"]))
+    if scope == "released":
+        ids = [i for i in planned if i in released]
+    elif scope == "open":
+        ids = [i for i in planned if i not in released]
+    else:
+        ids = planned
+    results = [audit_promise(p, i, a.run) for i in ids]
+    bad = [r for r in results
+           if r["released"] and r["verdict"] in
+           ("ILL_FORMED", "NO_PROOF", "NOT_HONORED")]
+    record = {"type": "audit", "scope": scope, "ran_accept": bool(a.run),
+              "verdicts": {r["id"]: r["verdict"] for r in results},
+              "failures": [r["id"] for r in bad]}
+    p.append("audits.jsonl", record)
+    if a.json:
+        _emit_json("audit", {"scope": scope, "results": results,
+                             "failures": [r["id"] for r in bad],
+                             "clean": not bad})
+        return 1 if bad else 0
+    print(f"=== PROMISE AUDIT ({scope}) — {tiso} ===")
+    print("Burden of proof: "
+          f"{p.config.get('burden_of_proof', 'artifact')}")
+    for r in results:
+        mark = {"HONORED": "✓", "UNVERIFIED": "?", "NO_PROOF": "✗",
+                "ILL_FORMED": "✗", "NOT_HONORED": "✗"}.get(r["verdict"], "?")
+        rel = " [RELEASED as kept]" if r["released"] else ""
+        print(f"  {mark} {r['id']}: {r['verdict']}{rel} — {r['reason']}")
+    if bad:
+        print(f"\nAUDIT FAILED: {len(bad)} promise(s) RELEASED as kept but "
+              "NOT honored — " + ", ".join(r["id"] for r in bad))
+        print("A released promise the auditor cannot confirm is a broken "
+              "promise. Ship the real thing or MISS-log it honestly.")
+        return 1
+    unver = [r["id"] for r in results if r["verdict"] == "UNVERIFIED"]
+    if unver:
+        print(f"\n{len(unver)} promise(s) UNVERIFIED — the promise-auditor "
+              "subagent must VIEW the screenshot proof to confirm each shows "
+              "the thing done. Deterministic checks pass; visual confirmation "
+              "pending.")
+    else:
+        print("\nAUDIT CLEAN — every released promise is honored.")
     return 0
 
 
@@ -1388,7 +1577,27 @@ def main(argv=None) -> int:
     s.add_argument("ids", nargs="+", help="win ids being committed")
     s.add_argument("--date", help="commitment date (default today; never "
                                   "past)")
+    s.add_argument("--means", help="what this promise MEANS — the definition "
+                                   "of done in one line (e.g. 'renders live "
+                                   "on the dashboard')")
+    s.add_argument("--accept", help="acceptance check: a shell command that "
+                                    "exits 0 iff the promise is honored. The "
+                                    "auditor runs it; without one the promise "
+                                    "is flagged ill-formed")
     s.set_defaults(fn=cmd_plan)
+
+    s = sub.add_parser("audit",
+                       help="INDEPENDENT promise auditor: verify each promise "
+                            "is well-formed AND honored (burden of proof "
+                            "met); fails closed on a released-but-unhonored "
+                            "promise")
+    s.add_argument("--scope", choices=["released", "open", "all"],
+                   help="which promises to audit (default: released)")
+    s.add_argument("--run", action="store_true",
+                   help="execute each promise's --accept check (default: "
+                        "deterministic form/proof checks only)")
+    s.add_argument("--json", action="store_true", help=JSON_HELP)
+    s.set_defaults(fn=cmd_audit)
 
     s = sub.add_parser("miss", help="MISS protocol: name a slip early — "
                                     "why + new date, ledgered")
