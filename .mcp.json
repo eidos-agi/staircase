@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "staircase": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/tools/mcp_server.py"]
+    }
+  }
+}

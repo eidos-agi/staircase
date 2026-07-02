@@ -1,0 +1,17 @@
+{
+  "name": "staircase",
+  "owner": {
+    "name": "Eidos AGI"
+  },
+  "metadata": {
+    "description": "Staircase — expectations management for nonlinear builders with linear stakeholders.",
+    "version": "0.3.0"
+  },
+  "plugins": [
+    {
+      "name": "staircase",
+      "source": "./",
+      "description": "Bank verified wins, release on a steady cadence, keep Work · Promise · Production · Mission aligned — with agent accountability built in."
+    }
+  ]
+}

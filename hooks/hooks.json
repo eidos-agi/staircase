@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -d .staircase ] && python3 \"${CLAUDE_PLUGIN_ROOT}/tools/staircase.py\" agent-brief || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -d .staircase ] && python3 \"${CLAUDE_PLUGIN_ROOT}/tools/staircase.py\" agent-check --hook || true"
+          },
+          {
+            "type": "command",
+            "command": "[ -d .staircase ] && [ -n \"$STAIRCASE_MANAGER_NUDGE\" ] && python3 \"${CLAUDE_PLUGIN_ROOT}/tools/staircase.py\" manager-check --hook || true"
+          }
+        ]
+      }
+    ]
+  }
+}
