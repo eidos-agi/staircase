@@ -2,7 +2,7 @@ asmp: "0.1"
 kind: service
 name: staircase
 description: "Expectations management for nonlinear builders with linear stakeholders — bank verified wins, release on a steady ledgered cadence."
-version: 0.3.0
+version: 0.9.0
 created_by: agent://claude/ship
 owner: eidos-agi
 section: tools
