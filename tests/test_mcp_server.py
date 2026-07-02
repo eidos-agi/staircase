@@ -148,7 +148,7 @@ class TestJsonModes(Base):
             "schema", "command", "date", "cadence", "cadence_entries",
             "buffer", "oldest_banked", "released_today", "streak",
             "promises_kept", "promises_named", "wins", "releases", "plans",
-            "alarms", "dir"})
+            "time", "alarms", "dir"})
         self.assertEqual((d["buffer"], d["released_today"], d["wins"],
                           d["releases"]), (3, 5, 8, 1))
         self.assertTrue(any("BUFFER BELOW CADENCE" in a
@@ -164,13 +164,16 @@ class TestJsonModes(Base):
         d = json.loads(out)
         self.assertEqual(set(d), {
             "schema", "command", "date", "mission", "cadence", "sla",
-            "plan_today", "open_plan", "misses_today", "buffer", "streak",
-            "promises_kept", "promises_named", "proof_adapters", "alarms",
-            "objections"})
+            "plan_today", "open_plan", "open_banked", "time", "misses_today",
+            "buffer", "streak", "promises_kept", "promises_named",
+            "proof_adapters", "alarms", "objections"})
         self.assertEqual(d["sla"], {"cadence": 5, "set_on": "2026-07-01",
                                     "signed_by": "sam"})
         self.assertEqual(d["plan_today"], ["w1", "w2"])
         self.assertEqual(d["open_plan"], ["w1", "w2"])
+        # w1 is banked (won, unreleased); w2 is not yet built
+        self.assertEqual(d["open_banked"], ["w1"])
+        self.assertEqual(d["time"]["open_unbanked_need_production"], 1)
 
     def test_report_json_body_matches_archived_file(self):
         self.seed()

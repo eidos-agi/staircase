@@ -130,6 +130,130 @@ def _parse_ts(s: str) -> dt.datetime:
     return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
+# --------------------------------------------------------- time awareness
+# Occurrence timestamps (what lands in the ledgers) are ALWAYS real UTC and
+# never backdated — see log-win/release. The helpers below reason ABOUT the
+# clock (how long until the deadline, in whose zone) without ever rewriting
+# an occurrence time; that separation keeps the "never backdated" guarantee
+# ironclad while making briefs and steering time-aware.
+def _zone(name: str):
+    """ZoneInfo for an IANA name; None if unavailable (stays stdlib-only —
+    zoneinfo ships with Python 3.9+)."""
+    if not name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:
+        return None
+
+
+def _system_tz_name() -> str:
+    """Best-effort IANA name of the machine's own zone, so `init` can record
+    where the agent runs. Reads the /etc/localtime symlink (macOS/Linux);
+    falls back to the fixed-offset abbreviation if that is unavailable."""
+    try:
+        target = os.readlink("/etc/localtime")
+        if "zoneinfo/" in target:
+            return target.split("zoneinfo/", 1)[1]
+    except OSError:
+        pass
+    key = getattr(_now().astimezone().tzinfo, "key", None)
+    return key or ""
+
+
+def _hhmm(s: str) -> tuple[int, int]:
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(s))
+    if not m:
+        raise _fail(f"time-of-day must be HH:MM, got {s!r}")
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        raise _fail(f"time-of-day out of range: {s!r}")
+    return h, mi
+
+
+def _human_remaining(mins: int) -> str:
+    if mins <= 0:
+        m = -mins
+        return f"deadline PASSED {m // 60}h{m % 60:02d}m ago"
+    return f"{mins // 60}h{mins % 60:02d}m to deadline"
+
+
+def time_facts(p: "Project", now: dt.datetime,
+               open_total: int, open_banked: int) -> dict:
+    """Deterministic clock facts for briefs, status and the manager packet.
+
+    The deadline is interpreted in the STAKEHOLDER's timezone (that is when
+    they expect delivery); 'now' and the remaining time are computed in
+    absolute UTC and rendered in both zones. `open_banked` = promises already
+    won (a release is seconds of work); the remainder still needs production
+    (real time) — the pace verdict weighs the two differently."""
+    op_name = p.config.get("operator_tz") or _system_tz_name()
+    sh_name = p.config.get("stakeholder_tz") or op_name
+    op = _zone(op_name) or now.astimezone().tzinfo
+    sh = _zone(sh_name) or op
+    now_op = now.astimezone(op)
+    now_sh = now.astimezone(sh)
+    h, mi = _hhmm(p.config.get("deadline_local", "18:00"))
+    deadline_sh = now_sh.replace(hour=h, minute=mi, second=0, microsecond=0)
+    mins = int((deadline_sh - now_sh).total_seconds() // 60)
+    open_unbanked = max(0, open_total - open_banked)
+    if open_total == 0:
+        verdict = "CLEAR"            # nothing outstanding
+    elif mins <= 0:
+        verdict = "PAST_DEADLINE"    # slot passed with work still open
+    elif open_unbanked > 0 and mins < 60:
+        verdict = "CRITICAL"         # unbuilt promises, under an hour
+    elif open_unbanked > 0 and mins < 120:
+        verdict = "TIGHT"            # unbuilt promises, under two hours
+    elif open_banked > 0 and mins < 60:
+        verdict = "RELEASE_NOW"      # only releases left, slot closing
+    else:
+        verdict = "OK"
+    off_h = ((now_op.utcoffset() or dt.timedelta())
+             - (now_sh.utcoffset() or dt.timedelta())).total_seconds() / 3600
+    return {
+        "operator_tz": op_name, "stakeholder_tz": sh_name,
+        "now_operator": now_op.strftime("%Y-%m-%d %H:%M %Z"),
+        "now_stakeholder": now_sh.strftime("%Y-%m-%d %H:%M %Z"),
+        "operator_minus_stakeholder_hours": round(off_h, 2),
+        "deadline_local": f"{h:02d}:{mi:02d}",
+        "deadline_stakeholder": deadline_sh.strftime("%Y-%m-%d %H:%M %Z"),
+        "deadline_operator":
+            deadline_sh.astimezone(op).strftime("%Y-%m-%d %H:%M %Z"),
+        "minutes_remaining": mins,
+        "hours_remaining": round(mins / 60, 2),
+        "remaining_human": _human_remaining(mins),
+        "open_promises": open_total,
+        "open_banked_release_only": open_banked,
+        "open_unbanked_need_production": open_unbanked,
+        "pace_verdict": verdict,
+    }
+
+
+def _clock_line(tf: dict) -> str:
+    """The one-line CLOCK banner shared by agent-brief and status."""
+    same = tf["operator_tz"] == tf["stakeholder_tz"]
+    if same:
+        parts = [f"now {tf['now_stakeholder']}",
+                 f"deadline {tf['deadline_stakeholder']}",
+                 tf["remaining_human"]]
+    else:
+        parts = [f"now {tf['now_stakeholder']} (stakeholder) / "
+                 f"{tf['now_operator']} (here, "
+                 f"{tf['operator_minus_stakeholder_hours']:+g}h)",
+                 f"deadline {tf['deadline_stakeholder']} = "
+                 f"{tf['deadline_operator']} here",
+                 tf["remaining_human"]]
+    if tf["open_promises"]:
+        parts.append(
+            f"{tf['open_promises']} promise(s) open "
+            f"({tf['open_banked_release_only']} banked→release-only, "
+            f"{tf['open_unbanked_need_production']} need production)")
+    parts.append(f"pace: {tf['pace_verdict']}")
+    return "CLOCK: " + " · ".join(parts)
+
+
 def find_root(start: Path) -> Path | None:
     """Walk up from `start` to the filesystem root looking for .staircase/."""
     p = start.resolve()
@@ -209,6 +333,15 @@ DEFAULT_CONFIG = {
     "gate_command": "",
     "texture_notes": True,
     "retired_vocabulary": [],
+    # --- time awareness (all interpreted in stakeholder_tz) ---
+    # operator_tz: where the agent/machine runs (auto-detected at init).
+    # stakeholder_tz: where the stakeholder reads the report; "" = same as
+    # operator. deadline_local / morning_local: the day's slot wall-clocks,
+    # in the STAKEHOLDER's zone — that is when delivery is expected.
+    "operator_tz": "",
+    "stakeholder_tz": "",
+    "deadline_local": "18:00",
+    "morning_local": "07:00",
 }
 
 
@@ -406,10 +539,18 @@ def cmd_init(a) -> int:
     cfg["mission"] = a.mission or ""
     cfg["cadence_per_day"] = a.cadence
     cfg["stakeholders"] = list(a.stakeholder or [])
+    # record WHERE the agent runs so time math is unambiguous across machines
+    cfg["operator_tz"] = getattr(a, "operator_tz", "") or _system_tz_name()
+    cfg["stakeholder_tz"] = getattr(a, "stakeholder_tz", "") or ""
+    if getattr(a, "deadline", None):
+        _hhmm(a.deadline)               # validate now, fail fast
+        cfg["deadline_local"] = a.deadline
     (sc / "config.yml").write_text(yamlish_dumps(
         cfg, header="# .staircase/config.yml — the delivery SLA for this "
                     "project.\n# Cadence changes: use `staircase set-quota` "
-                    "(never edit cadence_per_day by hand)."))
+                    "(never edit cadence_per_day by hand).\n# Time: slot "
+                    "wall-clocks (deadline_local/morning_local) are read in "
+                    "stakeholder_tz; operator_tz is where the agent runs."))
     (sc / "expectations.md").write_text(EXPECTATIONS_TEMPLATE.format(
         project=root.resolve().name, date=now.date().isoformat(),
         cadence=a.cadence, by=a.by))
@@ -512,27 +653,45 @@ def cmd_plan(a) -> int:
 def cmd_status(a) -> int:
     p = load_project(a.dir)
     today = _now().date()
+    tiso = today.isoformat()
     banked = p.banked()
-    released_today = p.released_by_day().get(today.isoformat(), 0)
-    kept, named = p.promise_ratio(today.isoformat())
+    released_today = p.released_by_day().get(tiso, 0)
+    kept, named = p.promise_ratio(tiso)
     stk = p.streak(today)
+    released = p.released_ids()
+    win_ids = {w["id"] for w in p.wins}
+    open_plan = [i for i in p.plan_for(tiso) if i not in released]
+    open_banked = [i for i in open_plan if i in win_ids]
+    tf = time_facts(p, _now(), len(open_plan), len(open_banked))
     alarms = p.consistency_errors()
     if len(banked) < p.cadence:
         alarms.append(
             f"BUFFER BELOW CADENCE: {len(banked)} banked < {p.cadence}/day "
             "SLA — production must outpace release or the cadence "
             "conversation happens in expectations.md, not silently")
+    if tf["pace_verdict"] in ("CRITICAL", "PAST_DEADLINE"):
+        alarms.append(
+            f"DEADLINE {tf['pace_verdict']}: {tf['remaining_human']} · "
+            f"{tf['open_unbanked_need_production']} promise(s) still need "
+            f"production, {tf['open_banked_release_only']} banked need only a "
+            "release")
+    elif tf["pace_verdict"] == "RELEASE_NOW":
+        alarms.append(
+            f"RELEASE WINDOW CLOSING: {tf['remaining_human']} · "
+            f"{tf['open_banked_release_only']} banked promise(s) unreleased — "
+            "a release is seconds; the report renders at the slot")
 
     n_hist = len(p.cadence_history())
     if a.json:
         _emit_json("status", {
-            "date": today.isoformat(), "cadence": p.cadence,
+            "date": tiso, "cadence": p.cadence,
             "cadence_entries": n_hist, "buffer": len(banked),
             "oldest_banked": banked[0]["id"] if banked else None,
             "released_today": released_today, "streak": stk,
             "promises_kept": kept, "promises_named": named,
             "wins": len(p.wins), "releases": len(p.releases),
-            "plans": len(p.plans), "alarms": alarms, "dir": str(p.dir)})
+            "plans": len(p.plans), "time": tf,
+            "alarms": alarms, "dir": str(p.dir)})
         return 4 if (alarms and a.check) else 0
     print(f"Staircase status — {today.isoformat()} (operator dashboard: "
           "this is the internal truth)")
@@ -544,6 +703,7 @@ def cmd_status(a) -> int:
     print(f"  Today:    {released_today} released")
     print(f"  Streak:   {stk} day(s) on cadence")
     print(f"  Promises: {kept} of {named} named-in-advance kept")
+    print(f"  {_clock_line(tf)}")
     print(f"  Ledgers:  {len(p.wins)} wins · {len(p.releases)} release "
           f"event(s) · {len(p.plans)} plan(s) — {p.dir}")
     if alarms:
@@ -820,18 +980,30 @@ def brief_payload(p: Project, today: dt.date) -> dict:
     kept, named = p.promise_ratio(tiso)
     plan_ids = p.plan_for(tiso)
     released = p.released_ids()
+    win_ids = {w["id"] for w in p.wins}
+    open_plan = [i for i in plan_ids if i not in released]
+    open_banked = [i for i in open_plan if i in win_ids]
     misses_today = [m for m in p.misses if m["ts"][:10] == tiso]
     alarms = p.consistency_errors()
     if len(banked) < p.cadence:
         alarms.append(f"BUFFER BELOW CADENCE ({len(banked)} < "
                       f"{p.cadence}/day) — production outranks polish today")
+    tf = time_facts(p, _now(), len(open_plan), len(open_banked))
+    if tf["pace_verdict"] in ("CRITICAL", "PAST_DEADLINE"):
+        alarms.append(
+            f"DEADLINE {tf['pace_verdict']}: {tf['remaining_human']} · "
+            f"{tf['open_unbanked_need_production']} promise(s) still need "
+            f"production, {tf['open_banked_release_only']} banked need only "
+            "a release")
     hist = p.cadence_history()
     return {
         "date": tiso, "mission": p.mission, "cadence": p.cadence,
         "sla": ({"cadence": p.cadence, "set_on": hist[-1][0],
                  "signed_by": hist[-1][2]} if hist else None),
         "plan_today": plan_ids,
-        "open_plan": [i for i in plan_ids if i not in released],
+        "open_plan": open_plan,
+        "open_banked": open_banked,
+        "time": tf,
         "misses_today": [m["id"] for m in misses_today],
         "buffer": len(banked), "streak": p.streak(today),
         "promises_kept": kept, "promises_named": named,
@@ -853,23 +1025,21 @@ def cmd_agent_brief(a) -> int:
     banked = p.banked()
     kept, named = p.promise_ratio(tiso)
     plan_ids = p.plan_for(tiso)
-    released = p.released_ids()
-    open_plan = [i for i in plan_ids if i not in released]
+    if a.json:
+        _emit_json("agent-brief", brief_payload(p, today))
+        return 0
+    # human path: reuse the payload so text and JSON can never diverge
+    payload = brief_payload(p, today)
+    open_plan = payload["open_plan"]
     misses_today = [m for m in p.misses if m["ts"][:10] == tiso]
-    alarms = p.consistency_errors()
-    if len(banked) < p.cadence:
-        alarms.append(f"BUFFER BELOW CADENCE ({len(banked)} < "
-                      f"{p.cadence}/day) — production outranks polish today")
+    alarms = payload["alarms"]
+    tf = payload["time"]
     hist = p.cadence_history()
     sla = (f"{p.cadence} verified wins released/day — set {hist[-1][0]} "
            f"by {hist[-1][2]} (expectations.md)") if hist else \
         f"{p.cadence}/day (UNSIGNED — see alarms)"
     adapters = ", ".join(str(x) for x in p.config.get("proof_adapters",
                                                       ["manual"]))
-
-    if a.json:
-        _emit_json("agent-brief", brief_payload(p, today))
-        return 0
 
     L = [f"=== STAIRCASE AGENT BRIEF — {tiso} ==="]
     if p.mission:
@@ -892,6 +1062,7 @@ def cmd_agent_brief(a) -> int:
             if misses_today else ""),
          f"Buffer: {len(banked)} banked · streak "
          f"{p.streak(today)} day(s) · promises kept {kept} of {named}",
+         _clock_line(tf),
          f"Definition of done: proof adapter(s) [{adapters}] — a win "
          "EXISTS only when `staircase log-win <id> --proof <artifact>` "
          "succeeds; claim nothing beyond the ledger.",
@@ -1164,6 +1335,16 @@ def main(argv=None) -> int:
                    help="optional one-line why (config.yml mission:) — "
                         "rendered FIRST in every agent brief, before the "
                         "SLA")
+    s.add_argument("--operator-tz", dest="operator_tz", default="",
+                   help="IANA zone where the agent runs (default: "
+                        "auto-detected from the machine)")
+    s.add_argument("--stakeholder-tz", dest="stakeholder_tz", default="",
+                   help="IANA zone where the stakeholder reads the report, "
+                        "e.g. America/Chicago; slot deadlines are in THIS "
+                        "zone (default: same as operator)")
+    s.add_argument("--deadline", default="",
+                   help="the day's promise deadline as HH:MM in "
+                        "stakeholder_tz (default 18:00)")
     s.set_defaults(fn=cmd_init)
 
     s = sub.add_parser("log-win", help="append a verified win (append-only, "

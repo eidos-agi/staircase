@@ -412,6 +412,81 @@ class TestAgentAccountability(Base):
         self.assertEqual(out.strip(), "")
 
 
+class TestTimeAwareness(unittest.TestCase):
+    """The plugin knows what time it is, in whose zone, and how long is
+    left on today's promises — the operator and the stakeholder may be in
+    different timezones."""
+
+    def _init_tz(self, deadline="18:00"):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(
+            root, ignore_errors=True))
+        code, out = run("--dir", str(root), "init", "--cadence", "5",
+                        "--by", "sam", "--stakeholder-tz",
+                        "America/Chicago", "--deadline", deadline,
+                        now="2026-07-02T18:35:00Z")
+        self.assertEqual(code, 0, out)
+        return str(root)
+
+    def test_init_records_timezones(self):
+        root = self._init_tz()
+        cfg = staircase.yamlish_loads(
+            (Path(root) / ".staircase" / "config.yml").read_text())
+        self.assertTrue(cfg["operator_tz"], "operator_tz auto-detected")
+        self.assertEqual(cfg["stakeholder_tz"], "America/Chicago")
+        self.assertEqual(cfg["deadline_local"], "18:00")
+
+    def test_remaining_computed_in_stakeholder_zone(self):
+        # 18:35Z == 13:35 CDT; deadline 18:00 CDT == 23:00Z -> 265 minutes
+        root = self._init_tz()
+        code, out = run("--dir", root, "status", "--json",
+                        now="2026-07-02T18:35:00Z")
+        tf = json.loads(out)["time"]
+        self.assertEqual(tf["minutes_remaining"], 265)
+        self.assertEqual(tf["stakeholder_tz"], "America/Chicago")
+        self.assertIn("13:35 CDT", tf["now_stakeholder"])
+        self.assertIn("18:00 CDT", tf["deadline_stakeholder"])
+        # operator (machine) zone differs and the offset is reported
+        self.assertNotEqual(tf["operator_tz"], tf["stakeholder_tz"])
+
+    def test_clock_line_rendered_in_brief_and_status(self):
+        root = self._init_tz()
+        _, brief = run("--dir", root, "agent-brief",
+                       now="2026-07-02T18:35:00Z")
+        self.assertIn("CLOCK:", brief)
+        self.assertIn("4h25m to deadline", brief)
+        _, st = run("--dir", root, "status", now="2026-07-02T18:35:00Z")
+        self.assertIn("CLOCK:", st)
+
+    def test_pace_verdict_banked_vs_unbanked(self):
+        root = self._init_tz()
+        run("--dir", root, "plan", "p1", "--date", "2026-07-02",
+            now="2026-07-02T18:00:00Z")
+        # 22:30Z == 17:30 CDT -> 30 min left, p1 unbuilt -> CRITICAL
+        _, out = run("--dir", root, "status", "--json",
+                     now="2026-07-02T22:30:00Z")
+        tf = json.loads(out)["time"]
+        self.assertEqual(tf["open_unbanked_need_production"], 1)
+        self.assertEqual(tf["pace_verdict"], "CRITICAL")
+        # bank it -> release-only -> RELEASE_NOW (a release is seconds)
+        run("--dir", root, "log-win", "p1", "--proof", "x",
+            now="2026-07-02T22:35:00Z")
+        _, out = run("--dir", root, "status", "--json",
+                     now="2026-07-02T22:40:00Z")
+        tf = json.loads(out)["time"]
+        self.assertEqual(tf["open_banked_release_only"], 1)
+        self.assertEqual(tf["pace_verdict"], "RELEASE_NOW")
+
+    def test_past_deadline_raises_alarm(self):
+        root = self._init_tz()
+        run("--dir", root, "plan", "p1", "--date", "2026-07-02",
+            now="2026-07-02T18:00:00Z")
+        # 23:30Z == 18:30 CDT -> deadline passed with p1 open
+        _, out = run("--dir", root, "status", now="2026-07-02T23:30:00Z")
+        self.assertIn("PAST_DEADLINE", out)
+        self.assertIn("PASSED", out)
+
+
 if __name__ == "__main__":
     unittest.main()
 

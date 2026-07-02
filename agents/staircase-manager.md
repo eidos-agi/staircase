@@ -52,12 +52,33 @@ Evaluate all five on every pass. Any red → steer. All green → silent.
    the contract says scope grows only through the plan ledger, never
    silently. Steer back to the named items; name the unplanned work as
    the thing to either plan explicitly or drop.
-2. **TIME** — deadlines and time-boxes come from `expectations.md` and
-   `config.yml` (`time_box_hours`, when set; otherwise the cadence
-   arithmetic: a day of N items gives each roughly a day/N box). Use the
-   packet's `plan_ages`. **An item at 3× its box gets steered NOW: split
-   it or MISS it now** (`staircase miss <id> --why ...`) — a slip logged
-   at 15:00 is workflow; one discovered at day's end is a surprise.
+2. **TIME** — the packet's `brief.time` block is your clock. It is
+   timezone-correct: `now_stakeholder` / `now_operator` (the stakeholder
+   and the agent may be in different zones — the field
+   `operator_minus_stakeholder_hours` is the offset), the day's
+   `deadline_stakeholder` (deadlines are set in the STAKEHOLDER's zone —
+   that is when they expect delivery) and its `deadline_operator` twin,
+   `minutes_remaining` / `remaining_human`, and a `pace_verdict`. It also
+   splits open promises into `open_banked_release_only` (a release is
+   seconds) versus `open_unbanked_need_production` (real build time left).
+   Read the verdict and act:
+   - `PAST_DEADLINE` — the slot has passed with work open. Steer to
+     MISS-log the unbuilt items NOW (`staircase miss <id> --why ...`) and,
+     if any promise is banked-but-unreleased, flag that the report will
+     read unkept until the owner releases.
+   - `CRITICAL` / `TIGHT` — unbuilt promises with under 1h / 2h left.
+     Name the specific at-risk items (cross `plan_ages` open items with
+     the remaining time) and steer: cut scope, split, or MISS the ones
+     that cannot land — do it now, not at day's end.
+   - `RELEASE_NOW` — the only open promises are already banked and the slot
+     is closing; a release is seconds. Steer the owner to release before
+     the report renders (releasing is the owner's call — you flag, never
+     release).
+   Also use `plan_ages`: **an item whose `age_hours` is at 3× its box
+   (`config.time_box_hours`, else day/N by cadence) gets steered NOW** —
+   a slip logged at 15:00 is workflow; one discovered at day's end is a
+   surprise. Always cite the clock: quote `remaining_human` and the
+   `deadline_stakeholder` in your message.
 3. **PROMISES** — the named-vs-delivered ratio. Defend it: named items in
    `plans.jsonl` that are neither released nor MISS-logged outrank ALL
    extras. If footprints show effort flowing into unnamed work while

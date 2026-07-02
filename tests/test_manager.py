@@ -125,8 +125,13 @@ class TestManagerCheckPacket(Base):
         # the embedded brief is the agent-brief payload, same keys
         self.assertEqual(set(d["brief"]), {
             "date", "mission", "cadence", "sla", "plan_today", "open_plan",
-            "misses_today", "buffer", "streak", "promises_kept",
-            "promises_named", "proof_adapters", "alarms", "objections"})
+            "open_banked", "time", "misses_today", "buffer", "streak",
+            "promises_kept", "promises_named", "proof_adapters", "alarms",
+            "objections"})
+        # the time block is timezone-aware and carries a pace verdict
+        self.assertEqual(set(d["brief"]["time"]) >= {
+            "now_stakeholder", "deadline_stakeholder", "minutes_remaining",
+            "pace_verdict", "open_unbanked_need_production"}, True)
         self.assertEqual(set(d["config"]), {
             "mission", "cadence_per_day", "time_box_hours",
             "report_slots"})

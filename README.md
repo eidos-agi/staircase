@@ -117,6 +117,39 @@ owner-signed history of every cadence agreement.
    which writes a dated, owner-signed line into `expectations.md`. A cadence
    edited by hand with no matching entry fails **every** command closed.
 
+## Time awareness — in whose zone, and how long is left
+
+The agent doing the work and the stakeholder reading the report are often
+in **different timezones** (a build agent on a rented box in one region; a
+manager in Dallas). A deadline like "the 18:00 report" is only meaningful in
+the *stakeholder's* zone — so staircase interprets every slot wall-clock in
+`stakeholder_tz`, computes the remaining time in absolute UTC, and renders it
+in both zones. `init` auto-detects the machine's zone as `operator_tz`; set
+`--stakeholder-tz` (and `--deadline HH:MM`) to where the report is read:
+
+```
+staircase init --cadence 5 --by <owner> --stakeholder-tz America/Chicago --deadline 18:00
+```
+
+Every `agent-brief` and `status` then carries a CLOCK line:
+
+```
+CLOCK: now 2026-07-02 13:42 CDT (stakeholder) / 2026-07-02 11:42 PDT (here, -2h)
+       · deadline 2026-07-02 18:00 CDT = 2026-07-02 16:00 PDT here
+       · 4h17m to deadline · 1 promise(s) open (0 banked→release-only,
+       1 need production) · pace: OK
+```
+
+The pace verdict distinguishes promises that are **banked** (won but
+unreleased — a release is seconds) from those that still **need production**
+(real time), so the Manager's TIME domain can say the useful thing —
+`CRITICAL` / `TIGHT` when unbuilt promises are running out of clock,
+`RELEASE_NOW` when only releases remain and the slot is closing,
+`PAST_DEADLINE` (a loud alarm) when the slot passed with work open. The full
+block ships in `agent-brief --json` and the manager-check packet under
+`time`; config keys are `operator_tz`, `stakeholder_tz`, `deadline_local`,
+`morning_local`. Timezones use stdlib `zoneinfo` — still zero-dependency.
+
 ## Agents work under the same contract
 
 A repo with `.staircase/` keeps agents accountable too. The plugin ships a
