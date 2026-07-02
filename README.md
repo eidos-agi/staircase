@@ -285,6 +285,18 @@ Work without Promise is noise. Promise without Production is invisible.
 Production without Mission is busywork. Staircase keeps all four in one
 ledger.
 
+## See it work
+
+[`examples/`](examples/) has a runnable, self-contained demo and a narrative
+walkthrough — a genericized team shipping dashboard tiles to a VP, showing
+every core move (a real promise, the screenshot burden of proof, the auditor
+catching "released ≠ kept," timezone-correct deadlines, and bisecting under
+pressure). Nothing it does touches a real project:
+
+```
+bash examples/demo.sh
+```
+
 ## Install & keep current
 
 ```
