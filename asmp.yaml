@@ -1,0 +1,32 @@
+asmp: "0.1"
+kind: service
+name: staircase
+description: "Expectations management for nonlinear builders with linear stakeholders — bank verified wins, release on a steady ledgered cadence."
+version: 0.3.0
+created_by: agent://claude/ship
+owner: eidos-agi
+section: tools
+
+runtime:
+  style: plugin
+  host_app: claude-code
+
+capabilities:
+  provides:
+    - expectations.management
+    - wins.ledger
+    - delivery.cadence
+    - stakeholder.reporting
+  requires:
+    - claude-code
+
+infra:
+  repo: https://github.com/eidos-agi/staircase
+  install:
+    - "/plugin marketplace add eidos-agi/staircase"
+    - "/plugin install staircase@staircase"
+
+display:
+  icon: stairs
+  label: Staircase
+  section: tools
